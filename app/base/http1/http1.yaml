@@ -20,13 +20,6 @@ spec:
         kubernetes.io/os: linux
       containers:
       - name: http1-container
-        resources:
-          limits:
-            cpu: 50m
-            memory: 64Mi
-          requests:
-            cpu: 10m
-            memory: 32Mi
         image: alpine/curl
         command:
           - sh
