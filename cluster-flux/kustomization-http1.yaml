@@ -20,4 +20,4 @@ spec:
   prune: true
 
   # Apply everything into this namespace
-  targetNamespace: web
+  targetNamespace: default
