@@ -1,0 +1,23 @@
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: nginx
+  namespace: flux-system
+spec:
+  # Reconcile cadence and timeout
+  interval: 1m
+  timeout: 3m
+
+  # Where to fetch from (created by bootstrap)
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+    namespace: flux-system
+  # Which directory inside the source to apply
+  path: ./app/overlays/nginx
+
+  # Garbage-collect resources removed from Git
+  prune: true
+
+  # Apply everything into this namespace
+  targetNamespace: web
