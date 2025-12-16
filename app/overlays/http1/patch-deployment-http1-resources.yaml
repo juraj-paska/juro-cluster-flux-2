@@ -1,0 +1,17 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: http1
+  namespace: default
+spec:
+  template:
+    spec:
+      containers:
+        - name: http1-container
+          resources:
+            limits:
+              cpu: 50m
+              memory: 1Mi
+            requests:
+              cpu: 10m
+              memory: 1Mi
