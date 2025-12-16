@@ -1,0 +1,39 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: http1
+  labels:
+    app: http1
+    test: test
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: http1
+  template:
+    metadata:
+      labels:
+        app: http1
+    spec:
+      nodeSelector:
+        kubernetes.io/arch: amd64
+        kubernetes.io/os: linux
+      containers:
+      - name: http1-container
+        resources:
+          limits:
+            cpu: 50m
+            memory: 64Mi
+          requests:
+            cpu: 10m
+            memory: 32Mi
+        image: alpine/curl
+        command:
+          - sh
+          - -c
+          - |
+            while true; do 
+                curl -s http://big-boss-service.default.svc.cluster.local:80/index200.php;
+              date
+              sleep 30; 
+            done;
