@@ -10,8 +10,6 @@ spec:
         - name: http1-container
           resources:
             limits:
-              cpu: 50m
-              memory: 1Mi
+              memory: 64Mi
             requests:
-              cpu: 10m
-              memory: 1Mi
+              memory: 32Mi
