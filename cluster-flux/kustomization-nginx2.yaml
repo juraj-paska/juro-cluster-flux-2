@@ -19,5 +19,5 @@ spec:
   # Garbage-collect resources removed from Git
   prune: true
 
-    # Apply everything into this namespace
+  # Apply everything into this namespace
   targetNamespace: web2

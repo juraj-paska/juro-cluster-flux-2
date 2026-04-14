@@ -1,0 +1,55 @@
+name: YAML Lint
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  yamllint:
+    name: Lint YAML Files
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install yamllint
+        run: pip install yamllint
+
+      - name: Create yamllint config
+        run: |
+          cat > .yamllint.yaml << 'YLEOF'
+          extends: default
+          rules:
+            line-length:
+              max: 200
+              allow-non-breakable-words: true
+              allow-non-breakable-inline-mappings: true
+            truthy:
+              allowed-values: ['true', 'false', 'yes', 'no']
+              check-keys: false
+            comments:
+              require-starting-space: true
+              min-spaces-from-content: 1
+            indentation:
+              spaces: 2
+              indent-sequences: true
+            document-start: disable
+          YLEOF
+
+      - name: Run yamllint
+        run: |
+          echo "=== YAML Lint Results ==="
+          echo ""
+
+          # Find all YAML files (excluding .github and .git)
+          files=$(find . \( -name '*.yaml' -o -name '*.yml' \) \
+            -not -path './.github/*' \
+            -not -path './.git/*' \
+            -not -path './cluster-flux/flux-system/gotk-components.yaml' \
+            -not -path './cluster-flux/flux-system/kustomization.yaml' | sort)
+
+          echo "Files to lint:"
+          echo "$files" | while read f; do echo "  $f"; done
+          echo ""
+
+          yamllint -c .yamllint.yaml $files

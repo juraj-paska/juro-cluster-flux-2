@@ -1,0 +1,143 @@
+name: Kubernetes Schema Validation
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  kubeconform:
+    name: Validate K8s Manifests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install kubeconform
+        run: |
+          curl -sL https://github.com/yannh/kubeconform/releases/latest/download/kubeconform-linux-amd64.tar.gz | \
+            tar xz -C /usr/local/bin
+
+      - name: Install kustomize
+        run: |
+          curl -sL "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh" | bash
+          sudo mv kustomize /usr/local/bin/
+
+      - name: Validate base manifests directly
+        run: |
+          echo "=== Validating Base Manifests ==="
+          echo ""
+
+          exit_code=0
+
+          for f in $(find app/base -name '*.yaml' -not -name 'kustomization.yaml'); do
+            echo "Validating: $f"
+            if ! kubeconform -strict -summary \
+              -output text \
+              -kubernetes-version 1.28.0 \
+              "$f"; then
+              exit_code=1
+            fi
+          done
+
+          if [ "$exit_code" -ne 0 ]; then
+            echo ""
+            echo "[FAIL] Some base manifests have schema validation errors"
+            exit 1
+          fi
+
+          echo ""
+          echo "[PASS] All base manifests are valid"
+
+      - name: Validate kustomize build output
+        run: |
+          echo "=== Validating Kustomize Build Output ==="
+          echo ""
+
+          exit_code=0
+
+          for kust_file in $(find app/overlays -name 'kustomization.yaml' -type f); do
+            dir=$(dirname "$kust_file")
+            echo "--- Overlay: $dir ---"
+
+            if ! build_output=$(kustomize build "$dir" 2>&1); then
+              echo "[SKIP] Kustomize build failed for $dir (reported by kustomize-build workflow)"
+              echo "$build_output"
+              echo ""
+              continue
+            fi
+
+            echo "$build_output" | kubeconform -strict -summary \
+              -output text \
+              -kubernetes-version 1.28.0 || exit_code=1
+
+            echo ""
+          done
+
+          if [ "$exit_code" -ne 0 ]; then
+            echo ""
+            echo "[FAIL] Some kustomize outputs have schema validation errors"
+            exit 1
+          fi
+
+          echo "[PASS] All kustomize outputs are valid"
+
+      - name: Check for common K8s misconfigurations
+        run: |
+          echo "=== Common Misconfiguration Checks ==="
+          echo ""
+
+          exit_code=0
+
+          # Check: containers should have resource limits
+          echo "--- Check: Resource limits defined ---"
+          for f in $(find app/base -name 'deployment.yaml' -o -name 'http1.yaml'); do
+            name=$(grep -A1 'metadata:' "$f" | grep 'name:' | head -1 | awk '{print $2}')
+            if ! grep -q 'limits:' "$f"; then
+              echo "[WARN] Deployment '$name' in $f has no resource limits"
+              echo "       Best practice: always set CPU and memory limits"
+            else
+              echo "[PASS] Deployment '$name' has resource limits"
+            fi
+          done
+
+          echo ""
+
+          # Check: container ports match service targetPort
+          echo "--- Check: Port consistency ---"
+          for base_dir in app/base/*/; do
+            deploy_file=""
+            svc_file="$base_dir/service.yaml"
+
+            if [ -f "$base_dir/deployment.yaml" ]; then
+              deploy_file="$base_dir/deployment.yaml"
+            elif [ -f "$base_dir/http1.yaml" ]; then
+              deploy_file="$base_dir/http1.yaml"
+            fi
+
+            if [ -n "$deploy_file" ] && [ -f "$svc_file" ]; then
+              container_port=$(grep 'containerPort:' "$deploy_file" 2>/dev/null | head -1 | grep -oE '[0-9]+')
+              target_port=$(grep 'targetPort:' "$svc_file" 2>/dev/null | head -1 | grep -oE '[0-9]+')
+
+
+              app_name=$(basename "$base_dir")
+
+              if [ -n "$container_port" ] && [ -n "$target_port" ]; then
+                if [ "$container_port" != "$target_port" ]; then
+                  echo "[FAIL] Port mismatch in '$app_name': containerPort=$container_port but service targetPort=$target_port"
+                  exit_code=1
+                else
+                  echo "[PASS] Ports consistent for '$app_name' (port $container_port)"
+                fi
+              fi
+            fi
+          done
+
+          echo ""
+
+          if [ "$exit_code" -ne 0 ]; then
+            echo "=== VALIDATION FAILED ==="
+            echo "Fix the port mismatches above. The service targetPort must match the container's containerPort."
+            exit 1
+          fi
+
+          echo "=== All misconfiguration checks passed ==="

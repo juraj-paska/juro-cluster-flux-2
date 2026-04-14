@@ -18,7 +18,7 @@ spec:
         - name: nginx2
           image: nginx:1.25-alpine
           ports:
-            - containerPort: 81
+            - containerPort: 80
           resources:
             requests:
               cpu: "500m"
