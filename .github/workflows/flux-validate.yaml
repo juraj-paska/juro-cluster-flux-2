@@ -1,0 +1,127 @@
+name: Flux CD Validation
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  flux-validate:
+    name: Validate Flux Resources
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Flux CLI
+        run: curl -s https://fluxcd.io/install.sh | sudo bash
+
+      - name: Install kubeconform
+        run: |
+          curl -sL https://github.com/yannh/kubeconform/releases/latest/download/kubeconform-linux-amd64.tar.gz | \
+            tar xz -C /usr/local/bin
+
+      - name: Validate Flux Kustomization CRDs
+        run: |
+          echo "=== Flux Kustomization CRD Validation ==="
+          echo ""
+
+          # Download Flux CRD schemas for kubeconform
+          mkdir -p /tmp/flux-schemas
+          curl -sL https://github.com/fluxcd/flux2/releases/latest/download/crd-schemas.tar.gz | \
+            tar xz -C /tmp/flux-schemas
+
+          exit_code=0
+
+          for f in $(find cluster-flux -name 'kustomization-*.yaml'); do
+            echo "Validating: $f"
+            if ! kubeconform -strict -summary \
+              -output text \
+              -schema-location default \
+              -schema-location "/tmp/flux-schemas/{{ .ResourceKind }}_{{ .ResourceAPIVersion }}.json" \
+              "$f"; then
+              exit_code=1
+            fi
+            echo ""
+          done
+
+          if [ "$exit_code" -ne 0 ]; then
+            echo "[FAIL] Some Flux CRDs have schema validation errors"
+            exit 1
+          fi
+
+          echo "[PASS] All Flux Kustomization CRDs are valid"
+
+      - name: Validate Flux source paths exist
+        run: |
+          echo "=== Flux Source Path Validation ==="
+          echo ""
+
+          exit_code=0
+
+          for f in $(find cluster-flux -name 'kustomization-*.yaml'); do
+            name=$(grep 'name:' "$f" | head -1 | awk '{print $2}')
+            path=$(grep 'path:' "$f" | head -1 | sed 's/.*path:\s*//' | tr -d ' ')
+
+            # Remove leading ./
+            local_path="${path#./}"
+
+            echo "Checking Flux Kustomization '$name': path=$path"
+
+            if [ ! -d "$local_path" ]; then
+              echo "[FAIL] Path '$path' referenced by '$name' does not exist"
+              exit_code=1
+            else
+              # Check that the path contains a kustomization.yaml
+              if [ ! -f "$local_path/kustomization.yaml" ]; then
+                echo "[FAIL] Path '$path' exists but has no kustomization.yaml"
+                exit_code=1
+              else
+                echo "[PASS] Path '$path' exists and contains kustomization.yaml"
+              fi
+            fi
+          done
+
+          echo ""
+
+          if [ "$exit_code" -ne 0 ]; then
+            echo "=== FLUX VALIDATION FAILED ==="
+            echo "Some Flux Kustomizations reference invalid paths or missing kustomization.yaml files."
+            echo "Ensure each Flux Kustomization's spec.path points to a directory with a valid kustomization.yaml."
+            exit 1
+          fi
+
+          echo "=== All Flux source paths are valid ==="
+
+      - name: Check Flux reconciliation consistency
+        run: |
+          echo "=== Flux Reconciliation Consistency ==="
+          echo ""
+
+          exit_code=0
+
+          for f in $(find cluster-flux -name 'kustomization-*.yaml'); do
+            name=$(grep 'name:' "$f" | head -1 | awk '{print $2}')
+            target_ns=$(grep 'targetNamespace:' "$f" | head -1 | awk '{print $2}')
+            path=$(grep 'path:' "$f" | head -1 | sed 's/.*path:\s*//' | tr -d ' ')
+            local_path="${path#./}"
+
+            echo "--- Kustomization: $name ---"
+            echo "  targetNamespace: $target_ns"
+            echo "  path: $path"
+
+            # If the overlay has a namespace set, check it matches Flux's targetNamespace
+            if [ -f "$local_path/kustomization.yaml" ]; then
+              overlay_ns=$(grep 'namespace:' "$local_path/kustomization.yaml" | head -1 | awk '{print $2}')
+              if [ -n "$overlay_ns" ] && [ -n "$target_ns" ] && [ "$overlay_ns" != "$target_ns" ]; then
+                echo "  [WARN] Namespace mismatch: overlay sets '$overlay_ns' but Flux targets '$target_ns'"
+              fi
+            fi
+
+            echo ""
+          done
+
+          if [ "$exit_code" -ne 0 ]; then
+            exit 1
+          fi
+
+          echo "=== Flux reconciliation consistency check complete ==="

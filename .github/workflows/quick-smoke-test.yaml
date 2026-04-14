@@ -1,0 +1,40 @@
+name: Quick Smoke Test
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  smoke-test:
+    name: Smoke Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verify repo structure
+        run: |
+          echo "=== Verifying repository structure ==="
+          echo "Checking required directories..."
+
+          for dir in app/base app/overlays cluster-flux; do
+            if [ -d "$dir" ]; then
+              echo "[PASS] Directory '$dir' exists"
+            else
+              echo "[FAIL] Directory '$dir' is missing"
+              exit 1
+            fi
+          done
+
+          echo ""
+          echo "Checking for YAML files..."
+          yaml_count=$(find . -name '*.yaml' -o -name '*.yml' | grep -v '.github' | grep -v '.git/' | wc -l)
+          echo "Found $yaml_count Kubernetes manifest files"
+
+          if [ "$yaml_count" -eq 0 ]; then
+            echo "[FAIL] No YAML manifests found"
+            exit 1
+          fi
+
+          echo ""
+          echo "[PASS] Repository structure looks good"
