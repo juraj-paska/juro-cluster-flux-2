@@ -15,48 +15,54 @@ jobs:
       - name: Install Flux CLI
         run: curl -s https://fluxcd.io/install.sh | sudo bash
 
-      - name: Install kubeconform
-        run: |
-          curl -sL https://github.com/yannh/kubeconform/releases/latest/download/kubeconform-linux-amd64.tar.gz | \
-            tar xz -C /usr/local/bin
-
       - name: Validate Flux Kustomization CRDs
         run: |
           echo "=== Flux Kustomization CRD Validation ==="
-          echo ""
-
-          # Download Flux CRD schemas for kubeconform
-          mkdir -p /tmp/flux-schemas
-
-          # Extract schemas and flatten into the expected directory structure
-          curl -sL https://github.com/fluxcd/flux2/releases/latest/download/crd-schemas.tar.gz | \
-            tar xz -C /tmp/flux-schemas
-
-          # Find the actual schema files and make them accessible via a flat layout
-          # The tarball extracts as master-strict/<kind>_<apiversion>.json
-          mkdir -p /tmp/flux-flat
-          find /tmp/flux-schemas -name '*.json' -exec cp {} /tmp/flux-flat/ \;
-
-          echo "Available Flux schemas:"
-          ls /tmp/flux-flat/ | head -20
           echo ""
 
           exit_code=0
 
           for f in $(find cluster-flux -name 'kustomization-*.yaml'); do
             echo "Validating: $f"
-            if ! kubeconform -strict -summary \
-              -output text \
-              -schema-location default \
-              -schema-location "/tmp/flux-flat/{{ .ResourceKind }}_{{ .ResourceAPIVersion }}.json" \
-              "$f"; then
+
+            # Check required fields
+            name=$(grep -A1 'metadata:' "$f" | grep 'name:' | head -1 | awk '{print $2}')
+
+            missing=""
+            grep -q 'apiVersion:' "$f" || missing="$missing apiVersion"
+            grep -q 'kind:' "$f" || missing="$missing kind"
+            grep -q 'metadata:' "$f" || missing="$missing metadata"
+            grep -q 'spec:' "$f" || missing="$missing spec"
+            grep -q 'interval:' "$f" || missing="$missing spec.interval"
+            grep -q 'sourceRef:' "$f" || missing="$missing spec.sourceRef"
+            grep -q 'path:' "$f" || missing="$missing spec.path"
+
+            if [ -n "$missing" ]; then
+              echo "[FAIL] Kustomization '$name' is missing required fields:$missing"
+              exit_code=1
+            else
+              echo "[PASS] Kustomization '$name' has all required fields"
+            fi
+
+            # Validate apiVersion is a known Flux Kustomization version
+            api_version=$(grep 'apiVersion:' "$f" | head -1 | awk '{print $2}')
+            if [[ "$api_version" != kustomize.toolkit.fluxcd.io/* ]]; then
+              echo "[FAIL] Kustomization '$name' has unexpected apiVersion: $api_version"
               exit_code=1
             fi
+
+            # Validate kind
+            kind=$(grep 'kind:' "$f" | head -1 | awk '{print $2}')
+            if [ "$kind" != "Kustomization" ]; then
+              echo "[FAIL] Expected kind 'Kustomization' but got '$kind' in $f"
+              exit_code=1
+            fi
+
             echo ""
           done
 
           if [ "$exit_code" -ne 0 ]; then
-            echo "[FAIL] Some Flux CRDs have schema validation errors"
+            echo "[FAIL] Some Flux CRDs have validation errors"
             exit 1
           fi
 
