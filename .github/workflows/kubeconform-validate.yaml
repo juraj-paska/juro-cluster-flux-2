@@ -115,8 +115,9 @@ jobs:
             fi
 
             if [ -n "$deploy_file" ] && [ -f "$svc_file" ]; then
-              container_port=$(grep 'containerPort:' "$deploy_file" 2>/dev/null | head -1 | awk '{print $2}')
-              target_port=$(grep 'targetPort:' "$svc_file" 2>/dev/null | head -1 | awk '{print $2}')
+              container_port=$(grep 'containerPort:' "$deploy_file" 2>/dev/null | head -1 | grep -oE '[0-9]+')
+              target_port=$(grep 'targetPort:' "$svc_file" 2>/dev/null | head -1 | grep -oE '[0-9]+')
+
 
               app_name=$(basename "$base_dir")
 

@@ -45,7 +45,8 @@ jobs:
           files=$(find . \( -name '*.yaml' -o -name '*.yml' \) \
             -not -path './.github/*' \
             -not -path './.git/*' \
-            -not -path './cluster-flux/flux-system/gotk-components.yaml' | sort)
+            -not -path './cluster-flux/flux-system/gotk-components.yaml' \
+            -not -path './cluster-flux/flux-system/kustomization.yaml' | sort)
 
           echo "Files to lint:"
           echo "$files" | while read f; do echo "  $f"; done

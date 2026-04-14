@@ -27,8 +27,19 @@ jobs:
 
           # Download Flux CRD schemas for kubeconform
           mkdir -p /tmp/flux-schemas
+
+          # Extract schemas and flatten into the expected directory structure
           curl -sL https://github.com/fluxcd/flux2/releases/latest/download/crd-schemas.tar.gz | \
             tar xz -C /tmp/flux-schemas
+
+          # Find the actual schema files and make them accessible via a flat layout
+          # The tarball extracts as master-strict/<kind>_<apiversion>.json
+          mkdir -p /tmp/flux-flat
+          find /tmp/flux-schemas -name '*.json' -exec cp {} /tmp/flux-flat/ \;
+
+          echo "Available Flux schemas:"
+          ls /tmp/flux-flat/ | head -20
+          echo ""
 
           exit_code=0
 
@@ -37,7 +48,7 @@ jobs:
             if ! kubeconform -strict -summary \
               -output text \
               -schema-location default \
-              -schema-location "/tmp/flux-schemas/{{ .ResourceKind }}_{{ .ResourceAPIVersion }}.json" \
+              -schema-location "/tmp/flux-flat/{{ .ResourceKind }}_{{ .ResourceAPIVersion }}.json" \
               "$f"; then
               exit_code=1
             fi
