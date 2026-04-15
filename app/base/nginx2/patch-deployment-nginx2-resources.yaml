@@ -1,3 +1,6 @@
+# This is a Kustomize strategic merge patch, not a complete resource.
+# It should not be validated as a standalone Kubernetes manifest.
+# This file only contains the specific fields being modified.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
