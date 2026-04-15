@@ -41,15 +41,25 @@ jobs:
           echo "=== YAML Lint Results ==="
           echo ""
 
-          # Find all YAML files (excluding .github and .git)
           files=$(find . \( -name '*.yaml' -o -name '*.yml' \) \
             -not -path './.github/*' \
             -not -path './.git/*' \
             -not -path './cluster-flux/flux-system/gotk-components.yaml' \
             -not -path './cluster-flux/flux-system/kustomization.yaml' | sort)
 
-          echo "Files to lint:"
-          echo "$files" | while read f; do echo "  $f"; done
-          echo ""
+          exit_code=0
 
-          yamllint -c .yamllint.yaml $files
+          for f in $files; do
+            if ! yamllint -c .yamllint.yaml "$f"; then
+              exit_code=1
+            fi
+          done
+
+          if [ "$exit_code" -ne 0 ]; then
+            echo ""
+            echo "[FAIL] Some YAML files have lint errors"
+            exit 1
+          fi
+
+          echo ""
+          echo "[PASS] All YAML files pass lint checks"
