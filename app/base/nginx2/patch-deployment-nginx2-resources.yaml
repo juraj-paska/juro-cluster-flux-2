@@ -3,6 +3,9 @@ kind: Deployment
 metadata:
   name: nginx2
   namespace: web2
+  annotations:
+    # This is a strategic merge patch, not a complete resource
+    kustomize.config.k8s.io/behavior: merge
 spec:
   template:
     spec:
