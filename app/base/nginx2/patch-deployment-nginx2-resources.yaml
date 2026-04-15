@@ -3,6 +3,9 @@ kind: Deployment
 metadata:
   name: nginx2
 spec:
+  selector:
+    matchLabels:
+      app: nginx2
   template:
     spec:
       containers:
