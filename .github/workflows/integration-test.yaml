@@ -1,0 +1,201 @@
+name: Resource Policy Checks
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  resource-policies:
+    name: Enforce Resource Policies
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install kustomize
+        run: |
+          curl -sL "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh" | bash
+          sudo mv kustomize /usr/local/bin/
+
+      - name: Install yq
+        run: |
+          curl -sL https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 -o /usr/local/bin/yq
+          chmod +x /usr/local/bin/yq
+
+      - name: Enforce resource policies
+        run: |
+          echo "=== Resource Policy Enforcement ==="
+          echo ""
+          echo "Policies:"
+          echo "  - Every container must define both requests and limits for CPU and memory"
+          echo "  - CPU requests must be >= 10m"
+          echo "  - CPU limits must be >= 50m and <= 2000m"
+          echo "  - Memory requests must be >= 32Mi"
+          echo "  - Memory limits must be >= 64Mi and <= 4Gi"
+          echo "  - CPU limits must be >= CPU requests"
+          echo "  - Memory limits must be >= memory requests"
+          echo ""
+
+          exit_code=0
+
+          for kust_file in $(find . -name 'kustomization.yaml' -type f \
+            -not -path './.github/*' \
+            -not -path './cluster-flux/*'); do
+            dir=$(dirname "$kust_file")
+
+            if ! build_output=$(kustomize build "$dir" 2>/dev/null); then
+              continue
+            fi
+
+            # Split multi-document YAML and process each resource
+            resource_index=0
+            echo "$build_output" | yq eval-all -o=json '.' - 2>/dev/null | jq -c '.' 2>/dev/null | while IFS= read -r resource; do
+              kind=$(echo "$resource" | jq -r '.kind // empty')
+              name=$(echo "$resource" | jq -r '.metadata.name // empty')
+
+              # Only check workload kinds with pod templates
+              case "$kind" in
+                Deployment|StatefulSet|DaemonSet|Job) ;;
+                *) continue ;;
+              esac
+
+              echo "--- $kind/$name (from $dir) ---"
+
+              # Extract containers from pod template
+              containers=$(echo "$resource" | jq -c '.spec.template.spec.containers[]?' 2>/dev/null)
+
+              if [ -z "$containers" ]; then
+                echo "  [WARN] No containers found in pod template"
+                continue
+              fi
+
+              echo "$containers" | while IFS= read -r container; do
+                cname=$(echo "$container" | jq -r '.name')
+
+                cpu_req=$(echo "$container" | jq -r '.resources.requests.cpu // empty')
+                cpu_lim=$(echo "$container" | jq -r '.resources.limits.cpu // empty')
+                mem_req=$(echo "$container" | jq -r '.resources.requests.memory // empty')
+                mem_lim=$(echo "$container" | jq -r '.resources.limits.memory // empty')
+
+                echo "  Container: $cname"
+                echo "    CPU:    requests=$cpu_req  limits=$cpu_lim"
+                echo "    Memory: requests=$mem_req  limits=$mem_lim"
+
+                # Helper: convert CPU to millicores
+                cpu_to_milli() {
+                  local val="$1"
+                  if [ -z "$val" ]; then echo 0; return; fi
+                  if [[ "$val" == *m ]]; then
+                    echo "${val%m}"
+                  else
+                    echo "$val" | awk '{printf "%d", $1 * 1000}'
+                  fi
+                }
+
+                # Helper: convert memory to Mi
+                mem_to_mi() {
+                  local val="$1"
+                  if [ -z "$val" ]; then echo 0; return; fi
+                  if [[ "$val" == *Gi ]]; then
+                    echo "${val%Gi}" | awk '{printf "%d", $1 * 1024}'
+                  elif [[ "$val" == *Mi ]]; then
+                    echo "${val%Mi}"
+                  elif [[ "$val" == *Ki ]]; then
+                    echo "${val%Ki}" | awk '{printf "%d", $1 / 1024}'
+                  else
+                    echo "$val" | awk '{printf "%d", $1 / 1048576}'
+                  fi
+                }
+
+                fail_container=0
+
+                # Check: all four resource fields must be set
+                if [ -z "$cpu_req" ]; then
+                  echo "    [FAIL] Missing CPU requests"
+                  fail_container=1
+                fi
+                if [ -z "$cpu_lim" ]; then
+                  echo "    [FAIL] Missing CPU limits"
+                  fail_container=1
+                fi
+                if [ -z "$mem_req" ]; then
+                  echo "    [FAIL] Missing memory requests"
+                  fail_container=1
+                fi
+                if [ -z "$mem_lim" ]; then
+                  echo "    [FAIL] Missing memory limits"
+                  fail_container=1
+                fi
+
+                if [ "$fail_container" -eq 1 ]; then
+                  exit_code=1
+                  echo "    [FAIL] Container '$cname' is missing required resource definitions"
+                  continue
+                fi
+
+                cpu_req_m=$(cpu_to_milli "$cpu_req")
+                cpu_lim_m=$(cpu_to_milli "$cpu_lim")
+                mem_req_m=$(mem_to_mi "$mem_req")
+                mem_lim_m=$(mem_to_mi "$mem_lim")
+
+                # Check: minimum values
+                if [ "$cpu_req_m" -lt 10 ]; then
+                  echo "    [FAIL] CPU requests (${cpu_req}) is below minimum (10m)"
+                  fail_container=1
+                fi
+                if [ "$cpu_lim_m" -lt 50 ]; then
+                  echo "    [FAIL] CPU limits (${cpu_lim}) is below minimum (50m)"
+                  fail_container=1
+                fi
+                if [ "$mem_req_m" -lt 32 ]; then
+                  echo "    [FAIL] Memory requests (${mem_req}) is below minimum (32Mi)"
+                  fail_container=1
+                fi
+                if [ "$mem_lim_m" -lt 64 ]; then
+                  echo "    [FAIL] Memory limits (${mem_lim}) is below minimum (64Mi)"
+                  fail_container=1
+                fi
+
+                # Check: maximum values
+                if [ "$cpu_lim_m" -gt 2000 ]; then
+                  echo "    [FAIL] CPU limits (${cpu_lim}) exceeds maximum (2000m)"
+                  fail_container=1
+                fi
+                if [ "$mem_lim_m" -gt 4096 ]; then
+                  echo "    [FAIL] Memory limits (${mem_lim}) exceeds maximum (4Gi)"
+                  fail_container=1
+                fi
+
+                # Check: limits >= requests
+                if [ "$cpu_lim_m" -lt "$cpu_req_m" ]; then
+                  echo "    [FAIL] CPU limits (${cpu_lim}) is less than CPU requests (${cpu_req})"
+                  fail_container=1
+                fi
+                if [ "$mem_lim_m" -lt "$mem_req_m" ]; then
+                  echo "    [FAIL] Memory limits (${mem_lim}) is less than memory requests (${mem_req})"
+                  fail_container=1
+                fi
+
+                if [ "$fail_container" -eq 0 ]; then
+                  echo "    [PASS] All resource policies satisfied"
+                else
+                  # Signal failure to outer loop via temp file
+                  echo 1 > /tmp/policy_failure
+                fi
+              done
+
+              echo ""
+            done
+
+          if [ -f /tmp/policy_failure ]; then
+            exit_code=1
+            rm -f /tmp/policy_failure
+          fi
+
+          if [ "$exit_code" -ne 0 ]; then
+            echo "=== RESOURCE POLICY CHECK FAILED ==="
+            echo "Fix the resource values in the relevant patch or base manifest to satisfy the policies above."
+            exit 1
+          fi
+
+          echo "=== All resource policies passed ==="
