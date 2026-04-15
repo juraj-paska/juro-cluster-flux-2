@@ -17,33 +17,18 @@ jobs:
           curl -sL "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh" | bash
           sudo mv kustomize /usr/local/bin/
 
-      - name: Build all overlays
+      - name: Build all kustomize targets
         run: |
           echo "=== Kustomize Build Validation ==="
           echo ""
 
           exit_code=0
 
-          # Find all directories containing kustomization.yaml
-          for kust_file in $(find app/overlays -name 'kustomization.yaml' -type f); do
+          for kust_file in $(find . -name 'kustomization.yaml' -type f \
+            -not -path './.github/*' \
+            -not -path './cluster-flux/flux-system/*'); do
             dir=$(dirname "$kust_file")
-            echo "--- Building overlay: $dir ---"
-
-            if output=$(kustomize build "$dir" 2>&1); then
-              resource_count=$(echo "$output" | grep -c '^kind:' || true)
-              echo "[PASS] Build succeeded ($resource_count resources)"
-            else
-              echo "[FAIL] Build failed for $dir"
-              echo "$output"
-              exit_code=1
-            fi
-            echo ""
-          done
-
-          # Also build base directories
-          for kust_file in $(find app/base -name 'kustomization.yaml' -type f); do
-            dir=$(dirname "$kust_file")
-            echo "--- Building base: $dir ---"
+            echo "--- Building: $dir ---"
 
             if output=$(kustomize build "$dir" 2>&1); then
               resource_count=$(echo "$output" | grep -c '^kind:' || true)
@@ -58,8 +43,6 @@ jobs:
 
           if [ "$exit_code" -ne 0 ]; then
             echo "=== KUSTOMIZE BUILD FAILED ==="
-            echo "One or more kustomize overlays failed to build."
-            echo "Check the output above for details."
             exit 1
           fi
 
