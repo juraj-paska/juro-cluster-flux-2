@@ -7,7 +7,7 @@ spec:
   template:
     spec:
       containers:
-        - name: nginx2
+        - name: nginx
           resources:
             limits:
               cpu: 50m
