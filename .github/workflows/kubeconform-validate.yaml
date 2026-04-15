@@ -22,32 +22,6 @@ jobs:
           curl -sL "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh" | bash
           sudo mv kustomize /usr/local/bin/
 
-      - name: Validate base manifests directly
-        run: |
-          echo "=== Validating Base Manifests ==="
-          echo ""
-
-          exit_code=0
-
-          for f in $(find app/base -name '*.yaml' -not -name 'kustomization.yaml'); do
-            echo "Validating: $f"
-            if ! kubeconform -strict -summary \
-              -output text \
-              -kubernetes-version 1.28.0 \
-              "$f"; then
-              exit_code=1
-            fi
-          done
-
-          if [ "$exit_code" -ne 0 ]; then
-            echo ""
-            echo "[FAIL] Some base manifests have schema validation errors"
-            exit 1
-          fi
-
-          echo ""
-          echo "[PASS] All base manifests are valid"
-
       - name: Validate kustomize build output
         run: |
           echo "=== Validating Kustomize Build Output ==="
@@ -55,20 +29,23 @@ jobs:
 
           exit_code=0
 
-          for kust_file in $(find app/overlays -name 'kustomization.yaml' -type f); do
+          for kust_file in $(find . -name 'kustomization.yaml' -type f \
+            -not -path './.github/*' \
+            -not -path './cluster-flux/flux-system/*'); do
             dir=$(dirname "$kust_file")
-            echo "--- Overlay: $dir ---"
+            echo "--- Validating: $dir ---"
 
             if ! build_output=$(kustomize build "$dir" 2>&1); then
               echo "[SKIP] Kustomize build failed for $dir (reported by kustomize-build workflow)"
-              echo "$build_output"
               echo ""
               continue
             fi
 
-            echo "$build_output" | kubeconform -strict -summary \
+            if ! echo "$build_output" | kubeconform -strict -summary \
               -output text \
-              -kubernetes-version 1.28.0 || exit_code=1
+              -kubernetes-version 1.28.0; then
+              exit_code=1
+            fi
 
             echo ""
           done
@@ -90,13 +67,12 @@ jobs:
 
           # Check: containers should have resource limits
           echo "--- Check: Resource limits defined ---"
-          for f in $(find app/base -name 'deployment.yaml' -o -name 'http1.yaml'); do
+          for f in $(find app/base -name 'deployment.yaml' -o -name 'statefulset.yaml'); do
             name=$(grep -A1 'metadata:' "$f" | grep 'name:' | head -1 | awk '{print $2}')
             if ! grep -q 'limits:' "$f"; then
-              echo "[WARN] Deployment '$name' in $f has no resource limits"
-              echo "       Best practice: always set CPU and memory limits"
+              echo "[WARN] Workload '$name' in $f has no resource limits"
             else
-              echo "[PASS] Deployment '$name' has resource limits"
+              echo "[PASS] Workload '$name' has resource limits"
             fi
           done
 
@@ -108,16 +84,16 @@ jobs:
             deploy_file=""
             svc_file="$base_dir/service.yaml"
 
-            if [ -f "$base_dir/deployment.yaml" ]; then
-              deploy_file="$base_dir/deployment.yaml"
-            elif [ -f "$base_dir/http1.yaml" ]; then
-              deploy_file="$base_dir/http1.yaml"
-            fi
+            for candidate in deployment.yaml statefulset.yaml; do
+              if [ -f "$base_dir/$candidate" ]; then
+                deploy_file="$base_dir/$candidate"
+                break
+              fi
+            done
 
             if [ -n "$deploy_file" ] && [ -f "$svc_file" ]; then
               container_port=$(grep 'containerPort:' "$deploy_file" 2>/dev/null | head -1 | grep -oE '[0-9]+')
               target_port=$(grep 'targetPort:' "$svc_file" 2>/dev/null | head -1 | grep -oE '[0-9]+')
-
 
               app_name=$(basename "$base_dir")
 
@@ -136,7 +112,6 @@ jobs:
 
           if [ "$exit_code" -ne 0 ]; then
             echo "=== VALIDATION FAILED ==="
-            echo "Fix the port mismatches above. The service targetPort must match the container's containerPort."
             exit 1
           fi
 
