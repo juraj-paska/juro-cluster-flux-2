@@ -3,6 +3,8 @@ kind: Deployment
 metadata:
   name: nginx2
   namespace: web2
+  annotations:
+    kustomize.config.k8s.io/behavior: merge
 spec:
   template:
     spec:
