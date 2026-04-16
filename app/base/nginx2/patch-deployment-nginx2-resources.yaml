@@ -9,8 +9,8 @@ spec:
         - name: nginx2
           resources:
             limits:
-              cpu: 50m
-              memory: 64Mi
+              cpu: 600m
+              memory: 528Mi
             requests:
-              cpu: 10m
-              memory: 32Mi
+              cpu: 500m
+              memory: 64Mi
