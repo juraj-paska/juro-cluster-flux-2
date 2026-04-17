@@ -1,0 +1,16 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx2
+  namespace: web2
+spec:
+  selector:
+    matchLabels:
+      app: nginx2
+  template:
+    spec:
+      containers:
+        - name: nginx2
+          resources:
+            requests:
+              memory: 256Mi
