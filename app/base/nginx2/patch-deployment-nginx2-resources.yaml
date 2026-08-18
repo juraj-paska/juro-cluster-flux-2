@@ -1,0 +1,12 @@
+spec:
+  template:
+    spec:
+      $setElementOrder/containers:
+      - name: nginx2
+      containers:
+      - name: nginx2
+        resources:
+          limits:
+            cpu: 50m
+          requests:
+            cpu: 10m
