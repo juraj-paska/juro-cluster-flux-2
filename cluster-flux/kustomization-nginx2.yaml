@@ -14,7 +14,7 @@ spec:
     name: flux-system
     namespace: flux-system
   # Which directory inside the source to apply
-  path: ./app/base/nginx2
+  path: ./app/overlays/nginx2
 
   # Garbage-collect resources removed from Git
   prune: true

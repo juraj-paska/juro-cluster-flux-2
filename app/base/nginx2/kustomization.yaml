@@ -4,5 +4,3 @@ resources:
   - deployment.yaml
   - service.yaml
   - namespace.yaml
-patches:
-  - path: patch-deployment-nginx2-resources.yaml
