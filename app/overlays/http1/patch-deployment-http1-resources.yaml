@@ -7,9 +7,9 @@ spec:
   template:
     spec:
       containers:
-        - name: http1-container
-          resources:
-            limits:
-              cpu: 50m
-            requests:
-              cpu: 10m
+      - name: http1-container
+        resources:
+          limits:
+            memory: 64Mi
+          requests:
+            memory: 32Mi
